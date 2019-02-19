@@ -1550,6 +1550,11 @@ NDCTL_EXPORT struct ndctl_dimm *ndctl_dimm_get_next(struct ndctl_dimm *dimm)
 	return list_next(&bus->dimms, dimm, list);
 }
 
+NDCTL_EXPORT unsigned long ndctl_dimm_get_cmd_family(struct ndctl_dimm *dimm)
+{
+	return dimm->cmd_family;
+}
+
 NDCTL_EXPORT unsigned int ndctl_dimm_get_handle(struct ndctl_dimm *dimm)
 {
 	return dimm->handle;
