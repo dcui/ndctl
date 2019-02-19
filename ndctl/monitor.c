@@ -265,30 +265,58 @@ static bool filter_region(struct ndctl_region *region,
 	return true;
 }
 
+static bool ndctl_dimm_test_and_enable_notification(struct ndctl_dimm *dimm)
+{
+	const char *name = ndctl_dimm_get_devname(dimm);
+
+	/*
+	 * Hyper-V Virtual NVDIMM doesn't use ND_CMD_SMART to get the health
+	 * info. Instead, it uses ND_CMD_CALL, so the checking here can't
+	 * apply, and it doesn't support threshold alarms -- actually it only
+	 * supports one event: ND_EVENT_HEALTH_STATE.
+	 */
+	if (ndctl_dimm_get_cmd_family(dimm) == NVDIMM_FAMILY_HYPERV) {
+		if (monitor.event_flags != ND_EVENT_HEALTH_STATE) {
+			monitor.event_flags = ND_EVENT_HEALTH_STATE;
+
+			notice(&monitor,
+				"%s: only dimm-health-state can be monitored\n",
+				name);
+		}
+		return true;
+	}
+
+	if (!ndctl_dimm_is_cmd_supported(dimm, ND_CMD_SMART)) {
+		err(&monitor, "%s: no smart support\n", name);
+		return false;
+	}
+	if (!ndctl_dimm_is_cmd_supported(dimm, ND_CMD_SMART_THRESHOLD)) {
+		err(&monitor, "%s: no smart threshold support\n", name);
+		return false;
+	}
+
+	if (!ndctl_dimm_is_flag_supported(dimm, ND_SMART_ALARM_VALID)) {
+		err(&monitor, "%s: smart alarm invalid\n", name);
+		return false;
+	}
+
+	if (enable_dimm_supported_threshold_alarms(dimm)) {
+		err(&monitor, "%s: enable supported threshold alarms failed\n", name);
+		return false;
+	}
+
+	return true;
+}
+
 static void filter_dimm(struct ndctl_dimm *dimm, struct util_filter_ctx *fctx)
 {
 	struct monitor_dimm *mdimm;
 	struct monitor_filter_arg *mfa = fctx->monitor;
 	const char *name = ndctl_dimm_get_devname(dimm);
 
-	if (!ndctl_dimm_is_cmd_supported(dimm, ND_CMD_SMART)) {
-		err(&monitor, "%s: no smart support\n", name);
-		return;
-	}
-	if (!ndctl_dimm_is_cmd_supported(dimm, ND_CMD_SMART_THRESHOLD)) {
-		err(&monitor, "%s: no smart threshold support\n", name);
-		return;
-	}
 
-	if (!ndctl_dimm_is_flag_supported(dimm, ND_SMART_ALARM_VALID)) {
-		err(&monitor, "%s: smart alarm invalid\n", name);
+	if (!ndctl_dimm_test_and_enable_notification(dimm))
 		return;
-	}
-
-	if (enable_dimm_supported_threshold_alarms(dimm)) {
-		err(&monitor, "%s: enable supported threshold alarms failed\n", name);
-		return;
-	}
 
 	mdimm = calloc(1, sizeof(struct monitor_dimm));
 	if (!mdimm) {
