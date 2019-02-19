@@ -19,6 +19,7 @@ enum {
 
 	/* non-root commands */
 	ND_HYPERV_CMD_GET_HEALTH_INFO = 1,
+	ND_HYPERV_CMD_GET_SHUTDOWN_INFO = 2,
 };
 
 /*
@@ -38,9 +39,15 @@ struct nd_hyperv_smart {
 	};
 } __attribute__((packed));
 
+struct nd_hyperv_shutdown_info {
+	 __u32   status;
+	 __u32   count;
+} __attribute__((packed));
+
 union nd_hyperv_cmd {
 	__u32			status;
 	struct nd_hyperv_smart	smart;
+	struct nd_hyperv_shutdown_info shutdown_info;
 } __attribute__((packed));
 
 struct nd_pkg_hyperv {

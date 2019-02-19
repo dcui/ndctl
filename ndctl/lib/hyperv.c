@@ -22,7 +22,8 @@
 #define CMD_HYPERV_STATUS(_c) (CMD_HYPERV(_c)->u.status)
 #define CMD_HYPERV_SMART_DATA(_c) (CMD_HYPERV(_c)->u.smart.data)
 
-static struct ndctl_cmd *hyperv_dimm_cmd_new_smart(struct ndctl_dimm *dimm)
+static struct ndctl_cmd *hyperv_dimm_cmd_new_cmd(struct ndctl_dimm *dimm,
+						 unsigned int command)
 {
 	struct ndctl_bus *bus = ndctl_dimm_get_bus(dimm);
 	struct ndctl_ctx *ctx = ndctl_bus_get_ctx(bus);
@@ -35,8 +36,7 @@ static struct ndctl_cmd *hyperv_dimm_cmd_new_smart(struct ndctl_dimm *dimm)
 		return NULL;
 	}
 
-	if (test_dimm_dsm(dimm, ND_HYPERV_CMD_GET_HEALTH_INFO) ==
-			  DIMM_DSM_UNSUPPORTED) {
+	if (test_dimm_dsm(dimm, command) ==  DIMM_DSM_UNSUPPORTED) {
 		dbg(ctx, "unsupported function\n");
 		return NULL;
 	}
@@ -54,7 +54,7 @@ static struct ndctl_cmd *hyperv_dimm_cmd_new_smart(struct ndctl_dimm *dimm)
 
 	hyperv = CMD_HYPERV(cmd);
 	hyperv->gen.nd_family = NVDIMM_FAMILY_HYPERV;
-	hyperv->gen.nd_command = ND_HYPERV_CMD_GET_HEALTH_INFO;
+	hyperv->gen.nd_command = command;
 	hyperv->gen.nd_fw_size = 0;
 	hyperv->gen.nd_size_in = offsetof(struct nd_hyperv_smart, status);
 	hyperv->gen.nd_size_out = sizeof(hyperv->u.smart);
@@ -65,16 +65,26 @@ static struct ndctl_cmd *hyperv_dimm_cmd_new_smart(struct ndctl_dimm *dimm)
 	return cmd;
 }
 
-static int hyperv_smart_valid(struct ndctl_cmd *cmd)
+static struct ndctl_cmd *hyperv_dimm_cmd_new_smart(struct ndctl_dimm *dimm)
+{
+	return hyperv_dimm_cmd_new_cmd(dimm, ND_HYPERV_CMD_GET_HEALTH_INFO);
+}
+
+static int hyperv_cmd_valid(struct ndctl_cmd *cmd, unsigned int command)
 {
 	if (cmd->type != ND_CMD_CALL ||
 	    cmd->size != sizeof(*cmd) + sizeof(struct nd_pkg_hyperv) ||
 	    CMD_HYPERV(cmd)->gen.nd_family != NVDIMM_FAMILY_HYPERV ||
-	    CMD_HYPERV(cmd)->gen.nd_command != ND_HYPERV_CMD_GET_HEALTH_INFO ||
+	    CMD_HYPERV(cmd)->gen.nd_command != command ||
 	    cmd->status != 0 ||
 	    CMD_HYPERV_STATUS(cmd) != 0)
 		return cmd->status < 0 ? cmd->status : -EINVAL;
 	return 0;
+}
+
+static int hyperv_smart_valid(struct ndctl_cmd *cmd)
+{
+	return hyperv_cmd_valid(cmd, ND_HYPERV_CMD_GET_HEALTH_INFO);
 }
 
 static int hyperv_cmd_xlat_firmware_status(struct ndctl_cmd *cmd)
@@ -82,17 +92,47 @@ static int hyperv_cmd_xlat_firmware_status(struct ndctl_cmd *cmd)
 	return CMD_HYPERV_STATUS(cmd) == 0 ? 0 : -EINVAL;
 }
 
+static int hyperv_get_shutdown_count(struct ndctl_cmd *cmd,
+				     unsigned int *count)
+{
+	unsigned int command = ND_HYPERV_CMD_GET_SHUTDOWN_INFO;
+	struct ndctl_cmd *cmd_get_shutdown_info;
+	int rc;
+
+	cmd_get_shutdown_info = hyperv_dimm_cmd_new_cmd(cmd->dimm, command);
+	if (!cmd_get_shutdown_info)
+		return -EINVAL;
+
+	if (ndctl_cmd_submit(cmd_get_shutdown_info) < 0 ||
+	    hyperv_cmd_valid(cmd_get_shutdown_info, command) < 0) {
+		rc = -EINVAL;
+		goto out;
+	}
+
+	*count = CMD_HYPERV(cmd_get_shutdown_info)->u.shutdown_info.count;
+	rc = 0;
+out:
+	ndctl_cmd_unref(cmd_get_shutdown_info);
+	return rc;
+}
+
 static unsigned int hyperv_cmd_smart_get_flags(struct ndctl_cmd *cmd)
 {
 	int rc;
+	unsigned int count;
+	unsigned int flags = 0;
 
 	rc = hyperv_smart_valid(cmd);
 	if (rc < 0) {
 		errno = -rc;
 		return 0;
 	}
+	flags |= ND_SMART_HEALTH_VALID;
 
-	return ND_SMART_HEALTH_VALID;
+	if (hyperv_get_shutdown_count(cmd, &count) == 0)
+		flags |= ND_SMART_SHUTDOWN_COUNT_VALID;
+
+	return flags;
 }
 
 static unsigned int hyperv_cmd_smart_get_health(struct ndctl_cmd *cmd)
@@ -121,9 +161,17 @@ static unsigned int hyperv_cmd_smart_get_health(struct ndctl_cmd *cmd)
 	return health;
 }
 
+static unsigned int hyperv_cmd_smart_get_shutdown_count(struct ndctl_cmd *cmd)
+{
+	unsigned int count;
+
+	return hyperv_get_shutdown_count(cmd, &count) == 0 ? count : UINT_MAX;
+}
+
 struct ndctl_dimm_ops * const hyperv_dimm_ops = &(struct ndctl_dimm_ops) {
 	.new_smart = hyperv_dimm_cmd_new_smart,
 	.smart_get_flags = hyperv_cmd_smart_get_flags,
 	.smart_get_health = hyperv_cmd_smart_get_health,
+	.smart_get_shutdown_count = hyperv_cmd_smart_get_shutdown_count,
 	.xlat_firmware_status = hyperv_cmd_xlat_firmware_status,
 };
