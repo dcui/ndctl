@@ -1,0 +1,47 @@
+root@decui-gen2-u1904:~/ndctl# ./inject_7f_2019
+Trying to inject error=0000007f, unsafe_shutdown_count=00002019
+
+root@decui-gen2-u1904:~/ndctl# ./query
+Injected Errors = 0x0000007f
+Injected Unsafe Shutdown Count = 0x00002019
+
+root@decui-gen2-u1904:~/ndctl# ndctl list --health --dimm=nmem0
+[
+  {
+    "dev":"nmem0",
+    "id":"04d5-01-1701-00000000",
+    "handle":0,
+    "phys_id":0,
+    "health":{
+      "health_state":"fatal",
+      "shutdown_count":8217
+    }
+  }
+]
+
+root@decui-gen2-u1904:~/ndctl# ./inject_0_0
+Trying to inject error=00000000, unsafe_shutdown_count=00000000
+
+root@decui-gen2-u1904:~/ndctl# ./query
+Injected Errors = 0x00000000
+No Unsafe Shutdown Count was injected, or the count was cleared.
+
+root@decui-gen2-u1904:~/ndctl# ndctl list --health --dimm=nmem0
+[
+  {
+    "dev":"nmem0",
+    "id":"04d5-01-1701-00000000",
+    "handle":0,
+    "phys_id":0,
+    "health":{
+      "health_state":"ok",
+      "shutdown_count":2
+    }
+  }
+]
+
+If "ndctl monitor" has been running, we should get the below when running the above commands:
+
+root@decui-gen2-u1904:~/ndctl# ndctl monitor -D dimm-health-state
+{"timestamp":"1552004844.807989502","pid":21675,"event":{"dimm-health-state":true},"dimm":{"dev":"nmem0","id":"04d5-01-1701-00000000","handle":0,"phys_id":0,"health":{"health_state":"fatal","shutdown_count":8217}}}
+{"timestamp":"1552004885.969000311","pid":21680,"event":{"dimm-health-state":true},"dimm":{"dev":"nmem0","id":"04d5-01-1701-00000000","handle":0,"phys_id":0,"health":{"health_state":"ok","shutdown_count":2}}}
